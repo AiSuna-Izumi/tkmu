@@ -89,3 +89,36 @@ const userCustom = fromPrismaUser(dbUser, {
   permissionNameKey: "code",
 });
 ```
+
+### Optional: menu tree + permissions
+- Scaffold Prisma `Menu` model (self-relation + permission) in the same CLI:
+```sh
+npx tkmu-prisma --user-model=User --with-menu
+# options: --menu-model=Menu --menu-table=menu
+```
+- The model fields mirror `id, title, children_of, permission_id, url, icon, sort, status, created_at, updated_at`.
+- Build a permission-aware tree for the frontend:
+```ts
+import { buildMenuTree } from "dztech-tkmu";
+
+const rawMenus = await prisma.menu.findMany({
+  orderBy: { sort: "asc" },
+  include: { permission: true },
+});
+
+const items = rawMenus.map((m) => ({
+  id: m.id,
+  title: m.title,
+  url: m.url,
+  icon: m.icon,
+  sort: m.sort,
+  status: m.status,
+  permission: m.permission?.name ?? null, // string permission name
+  parentId: m.childrenOf, // Prisma uses camelCase for the mapped "children_of"
+}));
+
+const tree = buildMenuTree(items, user /* UserLike */, {
+  parentKey: "parentId",
+  // filterUnauthorized: true // default: hide nodes the user cannot access
+});
+```

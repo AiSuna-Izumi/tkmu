@@ -8,12 +8,26 @@ const args = process.argv.slice(2);
 
 let userModel = "User"; // default
 let force = false;
+let addMenu = false;
+let menuModel = "Menu";
+let menuTable = "menu";
 for (const arg of args) {
     if (arg.startsWith("--user-model=")) {
         userModel = arg.split("=")[1] || "User";
     }
     if (arg === "--force") {
         force = true;
+    }
+    if (arg === "--with-menu" || arg === "--menu") {
+        addMenu = true;
+    }
+    if (arg.startsWith("--menu-model=")) {
+        menuModel = arg.split("=")[1] || "Menu";
+        addMenu = true;
+    }
+    if (arg.startsWith("--menu-table=")) {
+        menuTable = arg.split("=")[1] || "menu";
+        addMenu = true;
     }
 }
 
@@ -32,6 +46,25 @@ model Permission {
   id          Int          @id @default(autoincrement())
   name        String       @unique
   roles       Role[]       @relation("RolePermissions")
+}`;
+
+const menuModelBlock = (menuModelName: string, menuTableName: string) => `
+model ${menuModelName} {
+  id           Int          @id @default(autoincrement())
+  title        String
+  url          String?
+  icon         String?
+  sort         Int?
+  status       Int          @default(0)
+  childrenOf   Int?         @map("children_of")
+  permissionId Int?         @map("permission_id")
+  parent       ${menuModelName}? @relation("TKMU_MenuHierarchy", fields: [childrenOf], references: [id])
+  children     ${menuModelName}[] @relation("TKMU_MenuHierarchy")
+  permission   Permission?  @relation(fields: [permissionId], references: [id])
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  @@map("${menuTableName}")
 }`;
 
 // Prisma block dengan nama model user yang dinamik
@@ -68,6 +101,7 @@ function main() {
     const hasPermissionModel = /\bmodel\s+Permission\s+\{/.test(schema);
     const pivotModelName = `${userModel}Role`;
     const hasPivotModel = new RegExp(`\\bmodel\\s+${pivotModelName}\\s+\\{`).test(schema);
+    const hasMenuModel = new RegExp(`\\bmodel\\s+${menuModel}\\s+\\{`).test(schema);
 
     let workingSchema = schema;
     let addedUserRelation = false;
@@ -88,16 +122,6 @@ function main() {
         }
     }
 
-    if (hasTkmuBlock && !addedUserRelation) {
-        console.log("✅ TKMU RBAC block already exists in schema.prisma");
-        return;
-    }
-
-    if (hasRoleModel && hasPermissionModel && hasPivotModel && addedUserRelation === false) {
-        console.log("✅ Role, Permission, pivot, dan relation pada model user sudah wujud dalam schema.prisma");
-        return;
-    }
-
     const missingBlocks: string[] = [];
 
     if (!hasRoleModel) {
@@ -112,17 +136,22 @@ function main() {
         missingBlocks.push(pivotModelBlock(userModel));
     }
 
+    if (addMenu && !hasMenuModel) {
+        missingBlocks.push(menuModelBlock(menuModel, menuTable));
+    }
+
     if (missingBlocks.length === 0) {
         if (addedUserRelation) {
             fs.writeFileSync(prismaSchemaPath, workingSchema, "utf8");
             console.log(`✅ Relation pada model "${userModel}" ditambah untuk pivot Role`);
         } else {
-            console.log("ℹ️ Tiada perubahan dibuat.");
+            console.log("ℹ️ Tiada perubahan dibuat (model sedia ada).");
         }
         return;
     }
 
-    const tkmuBlock = ["/// TKMU RBAC START", ...missingBlocks, "/// TKMU RBAC END"].join("\n\n");
+    const blockLabel = addMenu ? "TKMU RBAC+MENU" : "TKMU RBAC";
+    const tkmuBlock = [`/// ${blockLabel} START`, ...missingBlocks, `/// ${blockLabel} END`].join("\n\n");
 
     const newSchema = workingSchema.trimEnd() + "\n\n" + tkmuBlock + "\n";
     fs.writeFileSync(prismaSchemaPath, newSchema, "utf8");
@@ -130,7 +159,10 @@ function main() {
     console.log(
         `✅ TKMU RBAC blok ditambah (${missingBlocks.length} komponen) menggunakan user model "${userModel}"`
     );
-    console.log('👉 Sekarang jalankan: npx prisma migrate dev -n "add_tkmu_rbac"');
+    if (addMenu && !hasMenuModel) {
+        console.log(`✅ Model menu "${menuModel}" (${menuTable}) turut ditambah dengan relation permission + parent/child`);
+    }
+    console.log('👉 Sekarang jalankan: npx prisma migrate dev -n "add_tkmu"');
 }
 
 main();
