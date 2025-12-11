@@ -27,3 +27,18 @@ export interface PrismaAdapterOptions {
   roleNameKey?: string;
   permissionNameKey?: string;
 }
+
+export interface UserLike {
+  id: string | number;
+  roles?: RoleName[];
+  permissions?: PermissionName[];
+}
+
+export interface TkmuOptions {
+  /**
+   * Enable wildcard permission match, e.g.:
+   *  - "users.*" matches "users.view", "users.update"
+   *  - "posts.update.*" matches "posts.update.own"
+   */
+  enableWildcard?: boolean;
+}

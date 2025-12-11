@@ -51,9 +51,14 @@ TypeScript disokong sepenuhnya (`UserLike`, `RoleName`, `PermissionName`).
 - Sasaran runtime `es2020`; tiada kebergantungan runtime tambahan.
 
 ## Integrasi Prisma (auto setup)
-1) Pastikan model Prisma anda ada relasi `roles`/`permissions` dengan field `name` (atau namakan lain).
-2) Ambil user dengan `include` relasi tersebut.
-3) Guna `fromPrismaUser` untuk jadikan `UserLike` yang boleh terus dipakai helper lain.
+1) Jalankan CLI untuk masukkan model Role/Permission/pivot jika belum ada:
+```sh
+npx tkmu-prisma --user-model=User
+# fail disasar: prisma/schema.prisma
+```
+2) Pastikan model Prisma anda ada relation `roles`/`permissions` dengan field `name` (atau namakan lain).
+3) Ambil user dengan `include` relation tersebut.
+4) Guna `fromPrismaUser` untuk jadikan `UserLike` yang boleh terus dipakai helper lain.
 
 ```ts
 import { fromPrismaUser, hasRole, can } from "dztech-tkmu";
@@ -79,3 +84,5 @@ const userCustom = fromPrismaUser(dbUser, {
   permissionNameKey: "code",
 });
 ```
+
+// pehe dok? dok pehe ngop, makan trajang r demo. orang wak comey doh ni.. jet tekok kang.
