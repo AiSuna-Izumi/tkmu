@@ -1,17 +1,20 @@
-# tkmu
-Helper kecil ala Spatie RBAC untuk Node/Next.js dengan API yang ringkas.
 
-## Langkah ringkas guna
-1) **Pasang pakej**
+---
+
+## tkmu (English)
+Tiny Spatie-like RBAC helper for Node/Next.js with a small API.
+
+### Quick steps
+1) Install
 ```sh
 npm install dztech-tkmu
-# atau
+# or
 yarn add dztech-tkmu
 ```
-2) **Sediakan data user** – `roles` dan/atau `permissions` dalam array.
-3) **Panggil helper** di middleware, API route, atau komponen server.
+2) Prepare a user object with `roles` and/or `permissions` arrays.
+3) Call the helpers in middleware, API routes, or server components.
 
-## Contoh cepat
+### Quick example
 ```ts
 import { hasRole, hasAnyRole, can, hasAllPermissions } from "dztech-tkmu";
 
@@ -22,45 +25,45 @@ const user = {
 };
 
 if (hasRole(user, "admin")) {
-  console.log("Admin boleh masuk");
+  console.log("Admin can enter");
 }
 
 if (hasAnyRole(user, ["author", "editor"])) {
-  console.log("Ada peranan sesuai");
+  console.log("Has a matching role");
 }
 
 if (can(user, "posts.create")) {
-  console.log("Boleh buat post");
+  console.log("Can create posts");
 }
 
 if (hasAllPermissions(user, ["posts.create", "posts.publish"])) {
-  console.log("Lengkap izin untuk terbit");
+  console.log("Fully allowed to publish");
 }
 ```
 
-## API
+### API
 - `hasRole(user, role)` → `boolean`
 - `hasAnyRole(user, roles[])` → `boolean`
 - `can(user, permission)` → `boolean`
 - `hasAllPermissions(user, permissions[])` → `boolean`
 
-TypeScript disokong sepenuhnya (`UserLike`, `RoleName`, `PermissionName`).
+TypeScript is fully supported (`UserLike`, `RoleName`, `PermissionName`).
 
-## Nota
-- Output tersedia untuk ESM (`dist/index.mjs`) dan CJS (`dist/index.cjs`).
-- Sasaran runtime `es2020`; tiada kebergantungan runtime tambahan.
+### Notes
+- Outputs for ESM (`dist/index.mjs`) and CJS (`dist/index.cjs`).
+- Target runtime `es2020`; no runtime deps.
 
-## Integrasi Prisma (auto setup)
-1) Jalankan CLI untuk masukkan model Role/Permission/pivot jika belum ada:
+### Prisma integration (auto setup)
+1) Run the CLI to insert Role/Permission/pivot models if missing:
 ```sh
 npx tkmu-prisma --user-model=User
-# fail disasar: prisma/schema.prisma
-# CLI akan cuba tambah relation pada model user (UserRole[]) jika belum ada
-# guna --force jika model User belum wujud tapi anda mahu tambah blok dahulu
+# target file: prisma/schema.prisma
+# CLI will try to add the relation on your user model (UserRole[]) if missing
+# use --force if your User model isn’t present yet but you want the block added
 ```
-2) Pastikan model Prisma anda ada relation `roles`/`permissions` dengan field `name` (atau namakan lain).
-3) Ambil user dengan `include` relation tersebut.
-4) Guna `fromPrismaUser` untuk jadikan `UserLike` yang boleh terus dipakai helper lain.
+2) Ensure your Prisma models have `roles`/`permissions` relations with a `name` field (or your own field names).
+3) Fetch a user with those relations included.
+4) Use `fromPrismaUser` to normalize into `UserLike` for the helpers.
 
 ```ts
 import { fromPrismaUser, hasRole, can } from "dztech-tkmu";
@@ -80,12 +83,9 @@ if (hasRole(user, "admin") && can(user, "posts.create")) {
   // do something
 }
 
-// Jika nama field lain, berikan option
+// If your fields differ, pass custom keys
 const userCustom = fromPrismaUser(dbUser, {
   roleNameKey: "roleName",
   permissionNameKey: "code",
 });
-
-
-// pehe dok? dok pehe gop, makan trajang r demo. orang wak comey doh ni.. jet tekok kang.
 ```
