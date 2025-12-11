@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2020",
+
+    "types": ["node"],       // senang untuk config file dll
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "strict": true,
+    "skipLibCheck": true,
+
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+
+    // tak perlu kalau kau tak buat React dalam lib ni, tapi tak rosak pun
+    // "jsx": "react-jsx"
+  },
+  "include": ["src", "tsup.config.ts"]
+}

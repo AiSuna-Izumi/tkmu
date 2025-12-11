@@ -1,0 +1,31 @@
+{
+  "name": "dztech-tkmu",
+  "version": "0.1.0",
+  "description": "Simple RBAC helper ala Spatie for Node/Next.js",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "tkmu",
+    "permissions",
+    "roles",
+    "nextjs",
+    "node"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsup": "^8.3.5",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}
