@@ -23,7 +23,7 @@ const roleModelBlock = (userModelName: string) => `
 model Role {
   id          Int          @id @default(autoincrement())
   name        String       @unique
-  ${userModelName.toLowerCase()}Roles ${userModelName}Role[]
+  ${userModelName.toLowerCase()}Roles ${userModelName}Role[] @relation("TKMU_RoleUsers")
   permissions Permission[] @relation("RolePermissions")
 }`;
 
@@ -39,9 +39,9 @@ const pivotModelBlock = (userModelName: string) => `
 /// Pivot table untuk many-to-many ${userModelName} <-> Role
 model ${userModelName}Role {
   id        Int          @id @default(autoincrement())
-  ${userModelName.toLowerCase()}   ${userModelName} @relation(fields: [${userModelName.toLowerCase()}Id], references: [id])
+  ${userModelName.toLowerCase()}   ${userModelName} @relation("TKMU_UserRoles", fields: [${userModelName.toLowerCase()}Id], references: [id])
   ${userModelName.toLowerCase()}Id Int
-  role      Role         @relation(fields: [roleId], references: [id])
+  role      Role         @relation("TKMU_RoleUsers", fields: [roleId], references: [id])
   roleId    Int
 
   @@unique([${userModelName.toLowerCase()}Id, roleId])
@@ -63,18 +63,38 @@ function main() {
         process.exit(1);
     }
 
-    if (schema.includes("TKMU RBAC START")) {
-        console.log("✅ TKMU RBAC block already exists in schema.prisma");
-        return;
-    }
-
+    const hasTkmuBlock = schema.includes("TKMU RBAC START");
     const hasRoleModel = /\bmodel\s+Role\s+\{/.test(schema);
     const hasPermissionModel = /\bmodel\s+Permission\s+\{/.test(schema);
     const pivotModelName = `${userModel}Role`;
     const hasPivotModel = new RegExp(`\\bmodel\\s+${pivotModelName}\\s+\\{`).test(schema);
 
-    if (hasRoleModel && hasPermissionModel && hasPivotModel) {
-        console.log("✅ Role, Permission, dan pivot sudah wujud dalam schema.prisma");
+    let workingSchema = schema;
+    let addedUserRelation = false;
+
+    // Tambah relation pada model user jika belum ada
+    if (hasUserModel) {
+        const userModelRegex = new RegExp(`model\\s+${userModel}\\s*\\{([\\s\\S]*?)\\n\\}`, "m");
+        const match = userModelRegex.exec(workingSchema);
+        const userRelationSignature = `@relation("TKMU_UserRoles")`;
+        if (match) {
+            const body = match[1] ?? "";
+            if (!body.includes(userRelationSignature)) {
+                const insertion = `  ${userModel.toLowerCase()}Roles ${userModel}Role[] ${userRelationSignature}`;
+                const replaced = match[0].replace(/\n\}$/, `\n${insertion}\n}`);
+                workingSchema = workingSchema.replace(match[0], replaced);
+                addedUserRelation = true;
+            }
+        }
+    }
+
+    if (hasTkmuBlock && !addedUserRelation) {
+        console.log("✅ TKMU RBAC block already exists in schema.prisma");
+        return;
+    }
+
+    if (hasRoleModel && hasPermissionModel && hasPivotModel && addedUserRelation === false) {
+        console.log("✅ Role, Permission, pivot, dan relation pada model user sudah wujud dalam schema.prisma");
         return;
     }
 
@@ -93,13 +113,18 @@ function main() {
     }
 
     if (missingBlocks.length === 0) {
-        console.log("ℹ️ Tiada perubahan dibuat.");
+        if (addedUserRelation) {
+            fs.writeFileSync(prismaSchemaPath, workingSchema, "utf8");
+            console.log(`✅ Relation pada model "${userModel}" ditambah untuk pivot Role`);
+        } else {
+            console.log("ℹ️ Tiada perubahan dibuat.");
+        }
         return;
     }
 
     const tkmuBlock = ["/// TKMU RBAC START", ...missingBlocks, "/// TKMU RBAC END"].join("\n\n");
 
-    const newSchema = schema.trimEnd() + "\n\n" + tkmuBlock + "\n";
+    const newSchema = workingSchema.trimEnd() + "\n\n" + tkmuBlock + "\n";
     fs.writeFileSync(prismaSchemaPath, newSchema, "utf8");
 
     console.log(
