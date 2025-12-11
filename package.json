@@ -12,7 +12,8 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prepare": "npm run build" 
   },
   "keywords": [
     "tkmu",
