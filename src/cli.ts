@@ -7,9 +7,13 @@ import path from "node:path";
 const args = process.argv.slice(2);
 
 let userModel = "User"; // default
+let force = false;
 for (const arg of args) {
     if (arg.startsWith("--user-model=")) {
         userModel = arg.split("=")[1] || "User";
+    }
+    if (arg === "--force") {
+        force = true;
     }
 }
 
@@ -50,6 +54,14 @@ function main() {
     }
 
     const schema = fs.readFileSync(prismaSchemaPath, "utf8");
+
+    const hasUserModel = new RegExp(`\\bmodel\\s+${userModel}\\s+\\{`).test(schema);
+    if (!hasUserModel && !force) {
+        console.error(
+            `❌ Model "${userModel}" tak jumpa dalam schema.prisma. Guna --user-model=<NamaModel> yang betul atau tambah --force jika pasti.`
+        );
+        process.exit(1);
+    }
 
     if (schema.includes("TKMU RBAC START")) {
         console.log("✅ TKMU RBAC block already exists in schema.prisma");

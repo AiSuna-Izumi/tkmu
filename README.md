@@ -55,6 +55,7 @@ TypeScript disokong sepenuhnya (`UserLike`, `RoleName`, `PermissionName`).
 ```sh
 npx tkmu-prisma --user-model=User
 # fail disasar: prisma/schema.prisma
+# guna --force jika model User belum wujud tapi anda mahu tambah blok dahulu
 ```
 2) Pastikan model Prisma anda ada relation `roles`/`permissions` dengan field `name` (atau namakan lain).
 3) Ambil user dengan `include` relation tersebut.
