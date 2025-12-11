@@ -85,6 +85,7 @@ const userCustom = fromPrismaUser(dbUser, {
   roleNameKey: "roleName",
   permissionNameKey: "code",
 });
-```
 
-// pehe dok? dok pehe ngop, makan trajang r demo. orang wak comey doh ni.. jet tekok kang.
+
+// pehe dok? dok pehe gop, makan trajang r demo. orang wak comey doh ni.. jet tekok kang.
+```
