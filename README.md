@@ -2,9 +2,35 @@
 
 RBAC helpers for Node.js and Next.js. TypeScript, ESM and CommonJS supported; no runtime dependencies.
 
+## Installation
+
+Install directly from GitHub:
+
+```sh
+npm install github:AiSuna-Izumi/tkmu
+```
+
+To use a specific published Git tag or commit, append its reference:
+
+```sh
+npm install github:AiSuna-Izumi/tkmu#<tag-or-commit>
+```
+
+Replace `<tag-or-commit>` with an existing Git reference. The repository's `prepare` script builds the package during installation; Git and Node.js tooling must be available, and lifecycle scripts must be enabled.
+
+Imports use the package name declared in `package.json`, even when installed from GitHub:
+
+```ts
+import { can, hasRole } from "dztech-tkmu";
+```
+
+If the package is available on your npm registry, you can also install it by name:
+
 ```sh
 npm install dztech-tkmu
 ```
+
+Local changes must be pushed to GitHub before GitHub installations can use them. For reproducible installations, pin a commit or release tag.
 
 ## Roles, permissions and module access
 
