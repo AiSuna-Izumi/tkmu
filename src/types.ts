@@ -5,6 +5,7 @@ export interface UserLike {
   id: string | number;
   roles?: RoleName[];
   permissions?: PermissionName[];
+  moduleAccess?: ModuleAccess[];
 }
 
 export interface PrismaRoleLike {
@@ -26,6 +27,11 @@ export interface PrismaUserInput {
 export interface PrismaAdapterOptions {
   roleNameKey?: string;
   permissionNameKey?: string;
+  rolesKey?: string;
+  permissionsKey?: string;
+  roleRelationKey?: string;
+  permissionRelationKey?: string;
+  rolePermissionsKey?: string;
 }
 
 export interface TkmuOptions {
@@ -74,4 +80,17 @@ export interface BuildMenuOptions {
    * Extra tkmu permission options (wildcards etc).
    */
   tkmuOptions?: TkmuOptions;
+}
+
+/** Action names are configurable; these defaults match common CRUD operations. */
+export const DEFAULT_ACTIONS = ["view", "create", "update", "delete"] as const;
+export type ModulePermissionAction = string;
+export interface ModuleAccess {
+  slug: string;
+  actions: Readonly<Record<string, boolean | null | undefined>>;
+}
+export interface PermissionLoaderOptions {
+  getUser: () => UserLike | null | undefined | Promise<UserLike | null | undefined>;
+  actions?: readonly string[];
+  permissionOptions?: TkmuOptions;
 }

@@ -11,7 +11,7 @@ const defaultOptions: TkmuOptions = {
 };
 
 // Util: wildcard match "users.*"
-function matchPermission(
+export function matchPermission(
   required: PermissionName,
   owned: PermissionName,
   opts: TkmuOptions
@@ -19,10 +19,12 @@ function matchPermission(
   if (!opts.enableWildcard) return required === owned;
   if (required === owned) return true;
 
-  // simple wildcard: "users.*"
-  if (required.includes("*")) {
-    const base = required.replace(/\*/g, "");
-    return owned.startsWith(base);
+  // Wildcards belong to granted permissions, never to the requested action.
+  if (owned.includes("*")) {
+    const pattern = owned.split("*").map((part) =>
+      part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    ).join(".*");
+    return new RegExp(`^${pattern}$`).test(required);
   }
 
   return false;
@@ -69,11 +71,11 @@ export function can(
   permission: PermissionName,
   options: TkmuOptions = {}
 ): boolean {
-  if (!user?.permissions) return false;
+  if (!user) return false;
 
   const opts = { ...defaultOptions, ...options };
 
-  return user.permissions.some((p) => matchPermission(permission, p, opts));
+  return resolvePermissions(user).some((p) => matchPermission(permission, p, opts));
 }
 
 /**
@@ -84,12 +86,12 @@ export function canAny(
   permissions: PermissionName[],
   options: TkmuOptions = {}
 ): boolean {
-  if (!user?.permissions || permissions.length === 0) return false;
+  if (!user || permissions.length === 0) return false;
 
   const opts = { ...defaultOptions, ...options };
 
   return permissions.some((perm) =>
-    user.permissions!.some((p) => matchPermission(perm, p, opts))
+    resolvePermissions(user).some((p) => matchPermission(perm, p, opts))
   );
 }
 
@@ -101,12 +103,12 @@ export function canAll(
   permissions: PermissionName[],
   options: TkmuOptions = {}
 ): boolean {
-  if (!user?.permissions || permissions.length === 0) return false;
+  if (!user || permissions.length === 0) return false;
 
   const opts = { ...defaultOptions, ...options };
 
   return permissions.every((perm) =>
-    user.permissions!.some((p) => matchPermission(perm, p, opts))
+    resolvePermissions(user).some((p) => matchPermission(perm, p, opts))
   );
 }
 
@@ -119,6 +121,46 @@ export function assertCan(
   options: TkmuOptions = {}
 ): void {
   if (!can(user, permission, options)) {
-    throw new Error(`Forbidden: missing permission "${permission}"`);
+    throw new AuthorizationError(`Forbidden: missing permission "${permission}"`);
   }
+}
+
+export class AuthorizationError extends Error {
+  readonly status = 403;
+  readonly code = "FORBIDDEN";
+  constructor(message = "Forbidden") {
+    super(message);
+    this.name = "AuthorizationError";
+  }
+}
+
+export function moduleAccessToPermissions(access: NonNullable<UserLike["moduleAccess"]> = []): PermissionName[] {
+  return [...new Set(access.flatMap(({ slug, actions }) =>
+    slug ? Object.entries(actions).filter(([, allowed]) => allowed === true)
+      .map(([action]) => `${slug}.${action}`) : []
+  ))];
+}
+
+/** Direct grants and module grants are combined, with duplicates removed. */
+export function resolvePermissions(user: UserLike | null | undefined): PermissionName[] {
+  return [...new Set([...(user?.permissions ?? []), ...moduleAccessToPermissions(user?.moduleAccess)])];
+}
+
+export function checkRole(user: UserLike | null | undefined, role: RoleName): void {
+  if (!hasRole(user, role)) throw new AuthorizationError(`Forbidden: missing role "${role}"`);
+}
+export function checkAnyRole(user: UserLike | null | undefined, roles: RoleName[]): void {
+  if (!hasAnyRole(user, roles)) throw new AuthorizationError("Forbidden: missing any required role");
+}
+export function checkAllRoles(user: UserLike | null | undefined, roles: RoleName[]): void {
+  if (!hasAllRoles(user, roles)) throw new AuthorizationError("Forbidden: missing required roles");
+}
+export const checkPermission = assertCan;
+export const hasAllPermissions = canAll;
+export const hasAnyPermission = canAny;
+export function checkAnyPermission(user: UserLike | null | undefined, permissions: PermissionName[], options: TkmuOptions = {}): void {
+  if (!canAny(user, permissions, options)) throw new AuthorizationError("Forbidden: missing any required permission");
+}
+export function checkAllPermissions(user: UserLike | null | undefined, permissions: PermissionName[], options: TkmuOptions = {}): void {
+  if (!canAll(user, permissions, options)) throw new AuthorizationError("Forbidden: missing required permissions");
 }

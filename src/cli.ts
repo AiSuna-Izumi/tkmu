@@ -1,168 +1,99 @@
 #!/usr/bin/env node
-
 import fs from "node:fs";
 import path from "node:path";
 
-// --- parse args ---
-const args = process.argv.slice(2);
-
-let userModel = "User"; // default
-let force = false;
-let addMenu = false;
-let menuModel = "Menu";
-let menuTable = "menu";
-for (const arg of args) {
-    if (arg.startsWith("--user-model=")) {
-        userModel = arg.split("=")[1] || "User";
-    }
-    if (arg === "--force") {
-        force = true;
-    }
-    if (arg === "--with-menu" || arg === "--menu") {
-        addMenu = true;
-    }
-    if (arg.startsWith("--menu-model=")) {
-        menuModel = arg.split("=")[1] || "Menu";
-        addMenu = true;
-    }
-    if (arg.startsWith("--menu-table=")) {
-        menuTable = arg.split("=")[1] || "menu";
-        addMenu = true;
-    }
-}
-
-const prismaSchemaPath = path.resolve(process.cwd(), "prisma/schema.prisma");
-
-const roleModelBlock = (userModelName: string) => `
-model Role {
-  id          Int          @id @default(autoincrement())
-  name        String       @unique
-  ${userModelName.toLowerCase()}Roles ${userModelName}Role[] @relation("TKMU_RoleUsers")
-  permissions Permission[] @relation("RolePermissions")
-}`;
-
-const permissionModelBlock = `
-model Permission {
-  id          Int          @id @default(autoincrement())
-  name        String       @unique
-  roles       Role[]       @relation("RolePermissions")
-}`;
-
-const menuModelBlock = (menuModelName: string, menuTableName: string) => `
-model ${menuModelName} {
-  id           Int          @id @default(autoincrement())
-  title        String
-  url          String?
-  icon         String?
-  sort         Int?
-  status       Int          @default(0)
-  childrenOf   Int?         @map("children_of")
-  permissionId Int?         @map("permission_id")
-  parent       ${menuModelName}? @relation("TKMU_MenuHierarchy", fields: [childrenOf], references: [id])
-  children     ${menuModelName}[] @relation("TKMU_MenuHierarchy")
-  permission   Permission?  @relation(fields: [permissionId], references: [id])
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
-
-  @@map("${menuTableName}")
-}`;
-
-// Prisma block dengan nama model user yang dinamik
-const pivotModelBlock = (userModelName: string) => `
-/// Pivot table untuk many-to-many ${userModelName} <-> Role
-model ${userModelName}Role {
-  id        Int          @id @default(autoincrement())
-  ${userModelName.toLowerCase()}   ${userModelName} @relation("TKMU_UserRoles", fields: [${userModelName.toLowerCase()}Id], references: [id])
-  ${userModelName.toLowerCase()}Id Int
-  role      Role         @relation("TKMU_RoleUsers", fields: [roleId], references: [id])
-  roleId    Int
-
-  @@unique([${userModelName.toLowerCase()}Id, roleId])
-}`;
-
 function main() {
-    if (!fs.existsSync(prismaSchemaPath)) {
-        console.error("❌ prisma/schema.prisma not found. Run this in a Prisma project root.");
-        process.exit(1);
+  const args = process.argv.slice(2);
+  const option = (key: string, fallback: string) => args.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3) || fallback;
+  const userModel = option("user-model", "User");
+  const menuModel = option("menu-model", "Menu");
+  const menuTable = option("menu-table", "menus");
+  const withMenu = args.some(arg => arg === "--with-menu" || arg === "--menu" || arg.startsWith("--menu-model=") || arg.startsWith("--menu-table="));
+  for (const name of [userModel, menuModel, menuTable]) {
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) throw new Error(`Invalid schema identifier: ${name}`);
+  }
+  const schemaPath = path.resolve(option("schema", "prisma/schema.prisma"));
+  const schema = fs.readFileSync(schemaPath, "utf8");
+  const marker = "/// TKMU RBAC V2 START";
+  if (schema.includes(marker)) {
+    if (withMenu && !new RegExp(`\\bmodel\\s+${menuModel}\\s*\\{`).test(schema)) {
+      throw new Error("RBAC already exists. Add the menu relation manually; existing schemas are never overwritten.");
     }
-
-    const schema = fs.readFileSync(prismaSchemaPath, "utf8");
-
-    const hasUserModel = new RegExp(`\\bmodel\\s+${userModel}\\s+\\{`).test(schema);
-    if (!hasUserModel && !force) {
-        console.error(
-            `❌ Model "${userModel}" tak jumpa dalam schema.prisma. Guna --user-model=<NamaModel> yang betul atau tambah --force jika pasti.`
-        );
-        process.exit(1);
+    console.log("TKMU RBAC already exists. No changes made.");
+    return;
+  }
+  const userRegex = new RegExp(`\\bmodel\\s+${userModel}\\s*\\{([^}]*?)\\}`, "m");
+  const match = userRegex.exec(schema);
+  if (!match) throw new Error(`Model "${userModel}" not found. Create it first or use --user-model=Name.`);
+  const id = /^\s*id\s+(Int|String|BigInt)\b([^\n]*)/m.exec(match[1]!);
+  if (!id || !/@id\b/.test(id[2]!)) throw new Error("The user model must have a single id field of type Int, String or BigInt.");
+  const idType = id[1]!;
+  const nativeType = id[2]!.match(/@db\.\w+(?:\([^)]*\))?/)?.[0] ?? "";
+  for (const name of ["Role", "Permission", "UserRole", "RolePermission", ...(withMenu ? [menuModel] : [])]) {
+    if (name === userModel || new RegExp(`\\bmodel\\s+${name}\\s*\\{`).test(schema)) {
+      throw new Error(`Model "${name}" already exists. Merge the RBAC schema manually to preserve existing data.`);
     }
-
-    const hasTkmuBlock = schema.includes("TKMU RBAC START");
-    const hasRoleModel = /\bmodel\s+Role\s+\{/.test(schema);
-    const hasPermissionModel = /\bmodel\s+Permission\s+\{/.test(schema);
-    const pivotModelName = `${userModel}Role`;
-    const hasPivotModel = new RegExp(`\\bmodel\\s+${pivotModelName}\\s+\\{`).test(schema);
-    const hasMenuModel = new RegExp(`\\bmodel\\s+${menuModel}\\s+\\{`).test(schema);
-
-    let workingSchema = schema;
-    let addedUserRelation = false;
-
-    // Tambah relation pada model user jika belum ada
-    if (hasUserModel) {
-        const userModelRegex = new RegExp(`model\\s+${userModel}\\s*\\{([\\s\\S]*?)\\n\\}`, "m");
-        const match = userModelRegex.exec(workingSchema);
-        const userRelationSignature = `@relation("TKMU_UserRoles")`;
-        if (match) {
-            const body = match[1] ?? "";
-            if (!body.includes(userRelationSignature)) {
-                const insertion = `  ${userModel.toLowerCase()}Roles ${userModel}Role[] ${userRelationSignature}`;
-                const replaced = match[0].replace(/\n\}$/, `\n${insertion}\n}`);
-                workingSchema = workingSchema.replace(match[0], replaced);
-                addedUserRelation = true;
-            }
-        }
-    }
-
-    const missingBlocks: string[] = [];
-
-    if (!hasRoleModel) {
-        missingBlocks.push(roleModelBlock(userModel));
-    }
-
-    if (!hasPermissionModel) {
-        missingBlocks.push(permissionModelBlock);
-    }
-
-    if (!hasPivotModel) {
-        missingBlocks.push(pivotModelBlock(userModel));
-    }
-
-    if (addMenu && !hasMenuModel) {
-        missingBlocks.push(menuModelBlock(menuModel, menuTable));
-    }
-
-    if (missingBlocks.length === 0) {
-        if (addedUserRelation) {
-            fs.writeFileSync(prismaSchemaPath, workingSchema, "utf8");
-            console.log(`✅ Relation pada model "${userModel}" ditambah untuk pivot Role`);
-        } else {
-            console.log("ℹ️ Tiada perubahan dibuat (model sedia ada).");
-        }
-        return;
-    }
-
-    const blockLabel = addMenu ? "TKMU RBAC+MENU" : "TKMU RBAC";
-    const tkmuBlock = [`/// ${blockLabel} START`, ...missingBlocks, `/// ${blockLabel} END`].join("\n\n");
-
-    const newSchema = workingSchema.trimEnd() + "\n\n" + tkmuBlock + "\n";
-    fs.writeFileSync(prismaSchemaPath, newSchema, "utf8");
-
-    console.log(
-        `✅ TKMU RBAC blok ditambah (${missingBlocks.length} komponen) menggunakan user model "${userModel}"`
-    );
-    if (addMenu && !hasMenuModel) {
-        console.log(`✅ Model menu "${menuModel}" (${menuTable}) turut ditambah dengan relation permission + parent/child`);
-    }
-    console.log('👉 Sekarang jalankan: npx prisma migrate dev -n "add_tkmu"');
+  }
+  if (/\buser_roles\s/.test(match[1]!)) throw new Error("User.user_roles already exists. Merge the relation manually.");
+  const updated = schema.replace(match[0], match[0].replace(/\}$/, "\n  user_roles UserRole[]\n}"));
+  const block = `
+${marker}
+model Role {
+  id Int @id @default(autoincrement())
+  name String @unique
+  user_roles UserRole[]
+  role_permissions RolePermission[]
+  @@map("roles")
 }
-
-main();
+model Permission {
+  id Int @id @default(autoincrement())
+  name String @unique
+  role_permissions RolePermission[]
+  ${withMenu ? `menus ${menuModel}[]` : ""}
+  @@map("permissions")
+}
+model UserRole {
+  user_id ${idType} ${nativeType}
+  role_id Int
+  user ${userModel} @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  @@id([user_id, role_id])
+  @@index([role_id])
+  @@map("user_roles")
+}
+model RolePermission {
+  role_id Int
+  permission_id Int
+  role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+  @@id([role_id, permission_id])
+  @@index([permission_id])
+  @@map("role_permissions")
+}
+${withMenu ? `model ${menuModel} {
+  id Int @id @default(autoincrement())
+  title String
+  url String?
+  icon String?
+  sort Int @default(0)
+  status Int @default(1)
+  parent_id Int?
+  permission_id Int?
+  parent ${menuModel}? @relation("MenuHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
+  children ${menuModel}[] @relation("MenuHierarchy")
+  permission Permission? @relation(fields: [permission_id], references: [id], onDelete: SetNull)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  @@map("${menuTable}")
+}` : ""}
+/// TKMU RBAC V2 END
+`;
+  fs.writeFileSync(`${schemaPath}.tkmu.bak`, schema, { flag: "wx" });
+  fs.writeFileSync(schemaPath, updated.trimEnd() + "\n" + block);
+  console.log(`RBAC schema added. Backup: ${schemaPath}.tkmu.bak`);
+  console.log(`Review the schema, then run: npx prisma migrate dev --schema=${JSON.stringify(schemaPath)} --name add_rbac`);
+}
+try { main(); } catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}

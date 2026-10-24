@@ -1,124 +1,161 @@
+# dztech-tkmu
 
----
+RBAC helpers for Node.js and Next.js. TypeScript, ESM and CommonJS supported; no runtime dependencies.
 
-## tkmu (English)
-Tiny Spatie-like RBAC helper for Node/Next.js with a small API.
-
-### Quick steps
-1) Install
 ```sh
 npm install dztech-tkmu
-# or
-yarn add dztech-tkmu
 ```
-2) Prepare a user object with `roles` and/or `permissions` arrays.
-3) Call the helpers in middleware, API routes, or server components.
 
-### Quick example
+## Roles, permissions and module access
+
 ```ts
-import { hasRole, hasAnyRole, can, hasAllPermissions } from "dztech-tkmu";
+import { can, canAll, checkRole, assertCan } from "dztech-tkmu";
 
 const user = {
-  id: 123,
-  roles: ["admin", "editor"],
-  permissions: ["posts.create", "posts.publish"],
+  id: 1,
+  roles: ["editor"],
+  permissions: ["reports.*"],
+  moduleAccess: [
+    { slug: "posts", actions: { view: true, create: true, update: true, delete: false } },
+  ],
 };
 
-if (hasRole(user, "admin")) {
-  console.log("Admin can enter");
-}
-
-if (hasAnyRole(user, ["author", "editor"])) {
-  console.log("Has a matching role");
-}
-
-if (can(user, "posts.create")) {
-  console.log("Can create posts");
-}
-
-if (hasAllPermissions(user, ["posts.create", "posts.publish"])) {
-  console.log("Fully allowed to publish");
-}
+can(user, "reports.export"); // true: granted wildcard
+can(user, "posts.view"); // true: module grant
+canAll(user, ["posts.create", "posts.update"]); // true
+checkRole(user, "editor");
+assertCan(user, "posts.delete"); // throws AuthorizationError
 ```
 
-### API
-- `hasRole(user, role)` → `boolean`
-- `hasAnyRole(user, roles[])` → `boolean`
-- `can(user, permission)` → `boolean`
-- `hasAllPermissions(user, permissions[])` → `boolean`
+Direct permissions and module permissions are combined. Module actions accept any English action name, including application actions such as `approve` or `export`. Only actions explicitly set to `true` grant access.
 
-TypeScript is fully supported (`UserLike`, `RoleName`, `PermissionName`).
+Wildcards apply to **granted** permissions: `users.*` grants `users.view`, while requesting `users.*` does not match a grant of only `users.view`. Matching is case sensitive and anchored; `*` can span multiple segments. Disable wildcard expansion with `{ enableWildcard: false }`.
 
-### Notes
-- Outputs for ESM (`dist/index.mjs`) and CJS (`dist/index.cjs`).
-- Target runtime `es2020`; no runtime deps.
+## Prisma setup
 
-### Prisma integration (auto setup)
-1) Run the CLI to insert Role/Permission/pivot models if missing:
 ```sh
-npx tkmu-prisma --user-model=User
-# target file: prisma/schema.prisma
-# CLI will try to add the relation on your user model (UserRole[]) if missing
-# use --force if your User model isn’t present yet but you want the block added
+npx tkmu-prisma --user-model=User --with-menu
+# Optional: --schema=prisma/schema.prisma --menu-model=Menu --menu-table=menus
 ```
-2) Ensure your Prisma models have `roles`/`permissions` relations with a `name` field (or your own field names).
-3) Fetch a user with those relations included.
-4) Use `fromPrismaUser` to normalize into `UserLike` for the helpers.
+
+The CLI adds `Role`, `Permission`, `UserRole`, and `RolePermission` models mapped to `roles`, `permissions`, `user_roles`, and `role_permissions`. Relation and foreign key fields use English snake_case: `user_roles`, `role_permissions`, `user_id`, `role_id`, `permission_id`. Optional menus use `parent_id`, `created_at`, and `updated_at`.
+
+An existing user model with a single `id` of type `Int`, `String`, or `BigInt` is required. The CLI preserves its native ID annotation, creates a `.tkmu.bak` backup, and refuses conflicting existing models. Review the generated schema before running Prisma migrations. Existing v0.1 schemas require a manual migration; implicit role/permission tables are not automatically converted. `--force` no longer bypasses a missing user model.
 
 ```ts
-import { fromPrismaUser, hasRole, can } from "dztech-tkmu";
-import { prisma } from "./prisma";
+import { fromPrismaUser, can } from "dztech-tkmu";
 
 const dbUser = await prisma.user.findUnique({
   where: { id: userId },
   include: {
-    roles: true,          // [{ name: "admin" }]
-    permissions: true,    // [{ name: "posts.create" }]
+    user_roles: {
+      include: {
+        role: {
+          include: { role_permissions: { include: { permission: true } } },
+        },
+      },
+    },
   },
 });
 
-const user = fromPrismaUser(dbUser); // auto extract name -> roles/permissions
+const user = fromPrismaUser(dbUser);
+can(user, "posts.view");
+```
 
-if (hasRole(user, "admin") && can(user, "posts.create")) {
-  // do something
-}
+The adapter combines direct user permissions with permissions inherited from roles, removing duplicates. It also accepts flat `roles` / `permissions` arrays and direct `{ name }` relations. `null` input returns `null`; invalid IDs throw `TypeError`. Filter inactive or soft-deleted assignments in your Prisma query.
 
-// If your fields differ, pass custom keys
-const userCustom = fromPrismaUser(dbUser, {
-  roleNameKey: "roleName",
-  permissionNameKey: "code",
+Custom field options: `rolesKey`, `permissionsKey`, `roleRelationKey`, `permissionRelationKey`, `roleNameKey`, `permissionNameKey`, and `rolePermissionsKey`.
+
+## Next.js session integration
+
+Supply your own session and database lookup. The library does not depend on an auth provider or Prisma runtime.
+
+```ts
+// lib/access.ts — server-side application code
+import { createPermissionLoader, fromPrismaUser } from "dztech-tkmu";
+
+export const access = createPermissionLoader({
+  getUser: async () => {
+    const session = await getSession(); // your application's session helper
+    if (!session?.user?.id) return null;
+    const dbUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      include: {
+        user_roles: {
+          include: {
+            role: { include: { role_permissions: { include: { permission: true } } } },
+          },
+        },
+      },
+    });
+    return fromPrismaUser(dbUser);
+  },
+  actions: ["view", "create", "update", "delete", "approve"],
 });
+
+await access.getPermissionsBySlug("posts");
+// { slug: "posts", actions: { view: true, create: false, ... } }
+await access.getPermissionsByAnySlug(["posts", "reports"]);
+// { slugs: ["posts", "reports"], actions: { ... } } — any slug may grant each action
+await access.canAccessBySlug("posts", "view");
+await access.assertAccessBySlug("posts", "delete");
 ```
 
-### Optional: menu tree + permissions
-- Scaffold Prisma `Menu` model (self-relation + permission) in the same CLI:
-```sh
-npx tkmu-prisma --user-model=User --with-menu
-# options: --menu-model=Menu --menu-table=menu
+Default actions are `view`, `create`, `update`, `delete`. Each query loads the current user once; no global user cache is used. Blank slugs deny access. Enforce access in every protected Route Handler or Server Action; hiding frontend controls alone does not protect data.
+
+```ts
+// Inside a Next.js Route Handler
+import { AuthorizationError } from "dztech-tkmu";
+import { access } from "@/lib/access";
+
+export async function DELETE() {
+  try {
+    await access.assertAccessBySlug("posts", "delete");
+    // Perform the authorized operation here.
+    return Response.json({ success: true });
+  } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return Response.json({ error: error.code }, { status: error.status });
+    }
+    throw error;
+  }
+}
 ```
-- The model fields mirror `id, title, children_of, permission_id, url, icon, sort, status, created_at, updated_at`.
-- Build a permission-aware tree for the frontend:
+
+## API
+
+- Roles: `hasRole`, `hasAnyRole`, `hasAllRoles`, `checkRole`, `checkAnyRole`, `checkAllRoles`.
+- Permissions: `can`, `canAny`, `canAll`, `assertCan` / `checkPermission`, `checkAnyPermission`, `checkAllPermissions`.
+- Compatibility aliases: `hasAnyPermission`, `hasAllPermissions`.
+- Normalization: `moduleAccessToPermissions`, `resolvePermissions`, `fromPrismaUser`.
+- Session integration: `createPermissionLoader`.
+- Errors: `AuthorizationError` with `status: 403` and `code: "FORBIDDEN"`.
+
+Boolean checks deny missing users and empty requirement lists. Guards throw `AuthorizationError` when denied.
+
+## Permission-aware menus
+
 ```ts
 import { buildMenuTree } from "dztech-tkmu";
 
-const rawMenus = await prisma.menu.findMany({
-  orderBy: { sort: "asc" },
-  include: { permission: true },
-});
+const menus = await prisma.menu.findMany({ include: { permission: true } });
+const tree = buildMenuTree(
+  menus.map(menu => ({ ...menu, permission: menu.permission?.name ?? null })),
+  user,
+  { parentKey: "parent_id" },
+);
+```
 
-const items = rawMenus.map((m) => ({
-  id: m.id,
-  title: m.title,
-  url: m.url,
-  icon: m.icon,
-  sort: m.sort,
-  status: m.status,
-  permission: m.permission?.name ?? null, // string permission name
-  parentId: m.childrenOf, // Prisma uses camelCase for the mapped "children_of"
-}));
+Menus without a permission are public. Unauthorized items are filtered; remaining items whose parents are absent become roots. Sort uses `sort` ascending. Status filtering remains the application's responsibility.
 
-const tree = buildMenuTree(items, user /* UserLike */, {
-  parentKey: "parentId",
-  // filterUnauthorized: true // default: hide nodes the user cannot access
-});
+## Upgrade notes
+
+Existing role and permission helper signatures remain available. Wildcard semantics are corrected to expand grants rather than requested permissions. CLI output now uses explicit English pivot tables; existing databases need a reviewed migration. The core never automatically assigns roles, changes organization membership, or writes audit records.
+
+## Development
+
+```sh
+npm test
+npm run typecheck
+npm run build
 ```
